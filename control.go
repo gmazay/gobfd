@@ -2,44 +2,44 @@ package gobfd
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"strings"
 )
 
-// 回调函数
+// Callback function
 type CallbackFunc func(ipAddr string, preState, curState int) error
 
-
 type Control struct {
-	Local      string
-	Family     int  // 协议家族: ipv4, ipv6,
-	RxQueue    chan *RxData
-	sessions   []*Session
+	Local    string
+	Family   int // ipv4, ipv6
+	RxQueue  chan *RxData
+	sessions []*Session
 }
 
+var log Logger
 
-func NewControl(local string, family int) *Control {
-	tmpControl :=  &Control{
-		Local:      local,
-		Family:     family,
-
-		RxQueue:    make(chan *RxData, 0),
+func NewControl(local string, family int, port int, logger Logger) *Control {
+	controlPort = port
+	log = logger
+	tmpControl := &Control{
+		Local:  local,
+		Family: family,
+		//log:    logger,
+		RxQueue: make(chan *RxData),
 	}
 	tmpControl.Run()
 	return tmpControl
 }
 
-
 ////// 添加需要检测的实例 ///////
 /*
- * local: 本地ip(0.0.0.0)
- * remote: 对端ip
+ * local: local ip (0.0.0.0)
+ * remote: peer ip
  * family: AF_INET4, AF_INET6
- * Passive: 是否被动模式
- * rxInterval: 接收间隔(输入毫秒单位),
- * txInterval: 发送间隔(输入毫秒单位)
- * detectMult:  报文最大失效的个数
- * f: 回调函数
+ * passive: Whether it is passive mode
+ * rxInterval: receive interval (input in milliseconds),
+ * txInterval: transmission interval (enter milliseconds)
+ * detectMult: the maximum number of failed packets
+ * f: Callback function
  */
 func (c *Control) AddSession(remote string, passive bool, rxInterval, txInterval, detectMult int, f CallbackFunc) {
 	nsession := NewSession(
@@ -47,38 +47,38 @@ func (c *Control) AddSession(remote string, passive bool, rxInterval, txInterval
 		remote,
 		c.Family,
 		passive,
-		rxInterval * 1000,
-		txInterval * 1000,
+		rxInterval*1000,
+		txInterval*1000,
 		detectMult,
 		f,
 	)
-	slogger.Debugf("Creating BFD session for remote %s.", remote)
+	//slogger.Debugf("Creating BFD session for remote %s.", remote)
+	log.Printf("Creating BFD session for remote " + remote)
 	c.sessions = append(c.sessions, nsession)
 }
 
-
-////// 删除某个需要检测的实例  /////
+////// Delete an instance that needs to be detected  /////
 func (c *Control) DelSession(remote string) error {
 	defer func() {
 		if err := recover(); err != nil {
-			logger.Error("Del session error:", zap.Any("err:",err))
+			log.Printf("Del session error: %s", err)
 			return
 		}
 	}()
 
 	for i, session := range c.sessions {
 		if session.Remote == remote {
-			session.clientQuit <- true  // 执行退出
-			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...)    // 删除session
+			session.clientQuit <- true                               // Exit
+			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...) // Delete session
 		}
 	}
 
 	return nil
 }
 
-// 处理接收到的包
+// Process the received packet
 func (c *Control) processPackets(rxdt *RxData) {
-	slogger.Debugf("Received a new packet from %s.", rxdt.Addr)
+	//log.Printf("Received a new packet from %s.", rxdt.Addr)
 
 	bfdPack := rxdt.Data
 	if bfdPack.YourDiscriminator > 0 {
@@ -90,7 +90,7 @@ func (c *Control) processPackets(rxdt *RxData) {
 		}
 	} else {
 		for _, session := range c.sessions {
-			//log.Println("session remote:", session.Remote, ", packat addr:", rxdt.Addr)
+			//log.Printf("session remote: %v", rxdt.Addr)
 			addrIp := strings.Split(rxdt.Addr, ":")[0]
 			if session.Remote == addrIp {
 				session.RxPacket(bfdPack)
@@ -99,25 +99,20 @@ func (c *Control) processPackets(rxdt *RxData) {
 		}
 	}
 
-	slogger.Infof("Dropping packet from %s as it doesnt match any configured remote.", rxdt.Addr)
+	log.Printf("Dropping packet from %s as it doesnt match any configured remote.", rxdt.Addr)
 }
 
-
-
-
-
 func (c *Control) initServer() {
-	slogger.Debugf("Setting up udp server on %s:%d", c.Local, CONTROL_PORT)
-	addr := fmt.Sprintf("%s:%d", c.Local, CONTROL_PORT)
+	log.Printf("Setting up udp server on %s:%d", c.Local, controlPort)
+	addr := fmt.Sprintf("%s:%d", c.Local, controlPort)
 	s := NewServer(addr, c.Family, c.RxQueue)
 	go s.Start()
 
 }
 
-
 func (c *Control) backgroundRun() {
 	c.initServer()
-	logger.Warn("BFD Daemon fully configured.")
+	log.Printf("BFD Daemon fully configured.")
 	for {
 		select {
 		case rxData := <-c.RxQueue:
@@ -127,6 +122,6 @@ func (c *Control) backgroundRun() {
 }
 
 func (c *Control) Run() {
-	logger.Info("run...")
+	log.Printf("run...")
 	go c.backgroundRun()
 }

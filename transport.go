@@ -2,16 +2,16 @@ package gobfd
 
 import (
 	"fmt"
-	"github.com/google/gopacket/layers"
 	"math/rand"
 	"net"
 	"syscall"
 	"time"
+
+	"github.com/google/gopacket/layers"
 )
 
-const (
-	CONTROL_PORT = 3784
-)
+//const ( controlPort = 3784 )
+var controlPort int
 
 type RxData struct {
 	Data *layers.BFD
@@ -30,8 +30,6 @@ func RandInt(min, max int) int {
 	return rand.Intn(max-min) + min
 }
 
-
-
 func NewClient(local, remote string, family int) (*net.UDPConn, error) {
 	var conn *net.UDPConn
 	var err error
@@ -39,7 +37,7 @@ func NewClient(local, remote string, family int) (*net.UDPConn, error) {
 	var rudpAddr *net.UDPAddr
 	srcPort := RandInt(SourcePortMin, SourcePortMax)
 	addr := fmt.Sprintf("%s:%d", local, srcPort)
-	serAddr := fmt.Sprintf("%s:%d", remote, CONTROL_PORT)
+	serAddr := fmt.Sprintf("%s:%d", remote, controlPort)
 	if family == syscall.AF_INET6 {
 		// ipv6
 		udpAddr, _ = net.ResolveUDPAddr("udp6", addr)
@@ -49,13 +47,12 @@ func NewClient(local, remote string, family int) (*net.UDPConn, error) {
 		udpAddr, _ = net.ResolveUDPAddr("udp4", addr)
 		rudpAddr, _ = net.ResolveUDPAddr("udp4", serAddr)
 	}
-	conn, err = net.DialUDP("udp",  udpAddr, rudpAddr)
+	conn, err = net.DialUDP("udp", udpAddr, rudpAddr)
 	if err != nil {
-		return  conn, err
+		return conn, err
 	}
 	return conn, nil
 }
-
 
 /////////////////////// server /////////////////////
 
@@ -63,63 +60,60 @@ type Server struct {
 	Addr     string
 	listener *net.UDPConn // udp conn
 
-	Family    int
-	RxQueue   chan *RxData
+	Family  int
+	RxQueue chan *RxData
 }
 
 func NewServer(addr string, family int, rx chan *RxData) *Server {
 	return &Server{
-		Addr:      addr,
-		Family: family,
-		RxQueue:   rx,
+		Addr:    addr,
+		Family:  family,
+		RxQueue: rx,
 	}
 }
 
 func (s *Server) Start() error {
-	logger.Debug(" server run start...")
-
-	var udpAddr *net.UDPAddr
 	if s.Family == syscall.AF_INET6 {
 		// ipv6
 		udpAddr, err := net.ResolveUDPAddr("udp6", s.Addr)
 		if err != nil {
-			logger.Error("ResolveUDPAddr err: " + err.Error())
+			log.Fatalf("ResolveUDPAddr err: " + err.Error())
 			return err
 		}
 		s.listener, err = net.ListenUDP("udp6", udpAddr)
 		if err != nil {
-			logger.Error("ListenUDP err:" + err.Error())
+			log.Fatalf("ListenUDP err:" + err.Error())
 			return err
 		}
+		log.Printf("udp server run at: %v", udpAddr.String())
 	} else {
 		// ipv4
 		udpAddr, err := net.ResolveUDPAddr("udp4", s.Addr)
 		if err != nil {
-			logger.Error("ResolveUDPAddr err: " + err.Error())
+			log.Fatalf("ResolveUDPAddr err: " + err.Error())
 			return err
 		}
 		s.listener, err = net.ListenUDP("udp4", udpAddr)
 		if err != nil {
-			logger.Error("ListenUDP err:" + err.Error())
+			log.Fatalf("ListenUDP err:" + err.Error())
 			return err
 		}
+		log.Printf("udp server run at: %v", udpAddr.String())
 	}
 
 	defer s.listener.Close()
-
-	slogger.Infof("udp server run at:", udpAddr.String())
 
 	s.Loop()
 
 	return nil
 }
 
-func (s *Server) Loop()  {
+func (s *Server) Loop() {
 	for {
 		data := make([]byte, 1024)
 		n, udpConn, err := s.listener.ReadFromUDP(data)
 		if err != nil {
-			logger.Error("read from udp error:" + err.Error())
+			log.Printf("read from udp error:" + err.Error())
 			continue
 		}
 
@@ -127,10 +121,7 @@ func (s *Server) Loop()  {
 		if err != nil {
 			continue
 		}
-		rxData := &RxData{Data:bfdPk, Addr: udpConn.String()}
+		rxData := &RxData{Data: bfdPk, Addr: udpConn.String()}
 		s.RxQueue <- rxData
 	}
 }
-
-
-

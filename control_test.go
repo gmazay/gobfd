@@ -2,6 +2,7 @@ package gobfd
 
 import (
 	"fmt"
+	l "log"
 	"os"
 	"syscall"
 	"testing"
@@ -15,6 +16,7 @@ func CallBackBFDState(ip string, pre, cur int) error {
 
 func TestNewControl(t *testing.T) {
 	family := syscall.AF_UNSPEC
+	port := 3784
 
 	var local, remote string
 	if len(os.Args) > 2 {
@@ -26,16 +28,17 @@ func TestNewControl(t *testing.T) {
 		remote = "192.168.43.244"
 	}
 	passive := false
-	rxInterval := 400 // 毫秒
-	txInterval := 400 // 毫秒
+	rxInterval := 400 // milliseconds
+	txInterval := 400 // milliseconds
 	detectMult := 1
+	var logger *l.Logger
 
-	control := NewControl(local, family)
+	control := NewControl(local, family, port, logger)
 	control.Run()
 
-	fmt.Println("add bfd check session  remote ip: ", remote)
+	l.Printf("add bfd check session  remote ip: ", remote)
 	control.AddSession(remote, passive, rxInterval, txInterval, detectMult, CallBackBFDState)
 
-	fmt.Println("local bfd server running at port: ", CONTROL_PORT)
+	l.Printf("local bfd server running at port: ", controlPort)
 	time.Sleep(time.Second * 30)
 }

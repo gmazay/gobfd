@@ -2,9 +2,10 @@ package gobfd
 
 import (
 	"fmt"
-	"github.com/google/gopacket/layers"
 	"math/rand"
 	"net"
+
+	"github.com/google/gopacket/layers"
 
 	"time"
 )
@@ -13,11 +14,14 @@ const (
 	defaultDetectMult = 3
 	SourcePortMin     = 49152
 	SourcePortMax     = 65535
+	//SourcePortMin = 32768
+	//SourcePortMax = 60999
 
 	VERSION = 1
 
 	// Default timers
 	DesiredMinTXInterval = 1000000 // Minimum initial value
+	//DesiredMinTXInterval = 100000 // Minimum initial value
 
 	ControlPlaneIndependent = false // Control Plane Independent
 
@@ -29,10 +33,10 @@ const (
 type Session struct {
 	conn *net.UDPConn
 
-	clientDone chan bool  // true: down
-	clientQuit chan bool  // true: 退出
+	clientDone chan bool // true: down
+	clientQuit chan bool // true: quit
 
-	// 回调状态
+	// Callback status
 	callFunc CallbackFunc
 
 	// BFD session
@@ -105,7 +109,7 @@ func NewSession(local, remote string, family int, passive bool,
 		DemandMode:          DemandMode,
 		RemoteDemandMode:    false,
 		DetectMult:          uint8(detectMult), //layers.BFDDetectMultiplier(detectMult),
-		AuthType:            true,  //  是否需要认证
+		AuthType:            false,             //  是否需要认证
 		RcvAuthSeq:          0,
 		XmitAuthSeq:         rand.Int63n(4294967295), // 32-bit
 		AuthSeqKnown:        false,
@@ -123,12 +127,11 @@ func NewSession(local, remote string, family int, passive bool,
 }
 
 func (s *Session) sessionLoop() {
-	slogger.Infof("setting up UDP client for %s:%d", s.Remote, CONTROL_PORT)
-
+	////logger.Infof("setting up UDP client for %s:%d", s.Remote, CONTROL_PORT)
 
 	conn, err := NewClient(s.Local, s.Remote, s.Family)
 	if err != nil {
-		logger.Error("loop new client close client chan")
+		////logger.Error("loop new client close client chan")
 		s.clientDone <- true
 	} else {
 		s.conn = conn
@@ -149,7 +152,7 @@ func (s *Session) sessionLoop() {
 			conn, err := NewClient(s.Local, s.Remote, s.Family)
 			if err != nil {
 				s.closeConn()
-				time.Sleep(time.Duration(int(interval)) * time.Microsecond )
+				time.Sleep(time.Duration(int(interval)) * time.Microsecond)
 				continue
 			}
 			s.conn = conn
@@ -157,7 +160,7 @@ func (s *Session) sessionLoop() {
 			// 启动检测
 			go s.DetectFailure()
 
-		case <- s.clientQuit:
+		case <-s.clientQuit:
 			// 执行退出
 			s.closeConn()
 			return
@@ -182,16 +185,16 @@ func (s *Session) sessionLoop() {
 func (s *Session) RxPacket(p *layers.BFD) {
 	//fmt.Println("====================== session rx packet ===================")
 	if p.AuthPresent && !s.AuthType {
-		logger.Error("Received packet with authentication while no authentication is configured locally")
+		////logger.Error("Received packet with authentication while no authentication is configured locally")
 		return
 	}
 
 	if !p.AuthPresent && s.AuthType {
-		logger.Error("Received packet without authentication while authentication is configured locally")
+		////logger.Error("Received packet without authentication while authentication is configured locally")
 		return
 	}
 	if p.AuthPresent != s.AuthType {
-		logger.Error("Authenticated packet received, not supported!")
+		////logger.Error("Authenticated packet received, not supported!")
 		return
 	}
 
@@ -213,7 +216,7 @@ func (s *Session) RxPacket(p *layers.BFD) {
 	s.setRemoteMinTxInterval(uint32(p.DesiredMinTxInterval))
 
 	if s.State == layers.BFDStateAdminDown {
-		slogger.Warnf("Received packet from %s while in Admin Down state", s.Remote)
+		////logger.Warnf("Received packet from %s while in Admin Down state", s.Remote)
 		return
 	}
 
@@ -225,7 +228,7 @@ func (s *Session) RxPacket(p *layers.BFD) {
 
 			s.State = layers.BFDStateDown
 			s.desiredMinTxInterval = DesiredMinTXInterval
-			slogger.Errorf("BFD remote %s signaled going ADMIN_DOWN", s.Remote)
+			////logger.Errorf("BFD remote %s signaled going ADMIN_DOWN", s.Remote)
 
 		}
 	} else {
@@ -235,7 +238,8 @@ func (s *Session) RxPacket(p *layers.BFD) {
 				go s.callFunc(s.Remote, int(s.State), int(layers.BFDStateInit))
 
 				s.State = layers.BFDStateInit
-				slogger.Errorf("BFD session with %s going to INIT state", s.Remote)
+				//s.State = layers.BFDStateDown
+				//////logger.Errorf("BFD session with %s going to INIT state", s.Remote)
 
 			} else if p.State == layers.BFDStateInit {
 				// 状态变化,执行回调函数
@@ -243,16 +247,17 @@ func (s *Session) RxPacket(p *layers.BFD) {
 
 				s.State = layers.BFDStateUp
 				s.setDesiredMinTxInterval(uint32(s.TxInterval))
-				slogger.Errorf("BFD session with %s going to UP state", s.Remote)
+				//////logger.Errorf("BFD session with %s going to UP state", s.Remote)
 			}
 		} else if s.State == layers.BFDStateInit {
+			///////logger.Errorf("--------------------------", s.Remote)
 			if p.State == layers.BFDStateInit || p.State == layers.BFDStateUp {
 				// 状态变化,执行回调函数
 				go s.callFunc(s.Remote, int(s.State), int(layers.BFDStateUp))
 
 				s.State = layers.BFDStateUp
 				s.setDesiredMinTxInterval(uint32(s.TxInterval))
-				slogger.Errorf("BFD session with %s going to UP state", s.Remote)
+				//////logger.Errorf("BFD session with %s going to UP state", s.Remote)
 			}
 		} else {
 			if p.State == layers.BFDStateDown {
@@ -261,7 +266,7 @@ func (s *Session) RxPacket(p *layers.BFD) {
 				go s.callFunc(s.Remote, int(s.State), int(layers.BFDStateDown))
 
 				s.State = layers.BFDStateDown
-				slogger.Errorf("BFD remote %s signaled going DOWN", s.Remote)
+				//////logger.Errorf("BFD remote %s signaled going DOWN", s.Remote)
 
 			}
 		}
@@ -271,22 +276,22 @@ func (s *Session) RxPacket(p *layers.BFD) {
 	// the receiving system MUST transmit a BFD Control packet with the Poll
 	//  (P) bit clear and the Final (F) bit set as soon as practicable, ...
 	if p.Poll {
-		slogger.Infof("Received packet with Poll (P) bit set from %s, sending packet with Final (F) bit set", s.Remote)
+		//////logger.Infof("Received packet with Poll (P) bit set from %s, sending packet with Final (F) bit set", s.Remote)
 		s.TxPacket(true)
 	}
 
 	// When the system sending the Poll sequence receives a packet with
 	// Final, the Poll Sequence is terminated
 	if p.Final {
-		slogger.Infof("Received packet with Final (F) bit set from %s, ending Poll Sequence", s.Remote)
+		//////logger.Infof("Received packet with Final (F) bit set from %s, ending Poll Sequence", s.Remote)
 		s.PollSequence = false
 		if s.finalAsyncTxInterval > 0 {
-			slogger.Infof("Increasing Tx Interval from %d to %d now that Poll Sequence has ended", s.asyncTxInterval, s.finalAsyncTxInterval)
+			//////logger.Infof("Increasing Tx Interval from %d to %d now that Poll Sequence has ended", s.asyncTxInterval, s.finalAsyncTxInterval)
 			s.asyncTxInterval = s.finalAsyncTxInterval
 			s.finalAsyncTxInterval = 0
 		}
 		if s.finalAsyncDetectTime > 0 {
-			slogger.Infof("Increasing Detect Time from %d to %d now that Poll Sequence has ended.", s.asyncDetectTime, s.finalAsyncDetectTime)
+			//////logger.Infof("Increasing Detect Time from %d to %d now that Poll Sequence has ended.", s.asyncDetectTime, s.finalAsyncDetectTime)
 			s.asyncDetectTime = s.finalAsyncDetectTime
 			s.finalAsyncDetectTime = 0
 		}
@@ -359,7 +364,7 @@ func (s *Session) TxPacket(final bool) {
 	_, err := s.conn.Write(txByte)
 	if err != nil {
 		//log.Println(err.Error())
-		logger.Debug("send byte to udp server error:" + err.Error())
+		////logger.Debug("send byte to udp server error:" + err.Error())
 		s.closeConn()
 		return
 	}
@@ -386,7 +391,7 @@ func (s *Session) closeConn() {
 // 计算探测时间"""Calculate the BFD Detection Time"""
 func (s *Session) calcDetectTime(detectMult, rxInterval, txInterval uint32) (ret uint32) {
 	if detectMult == 0 && rxInterval == 0 && txInterval == 0 {
-		slogger.Debugf("BFD Detection Time calculation not possible values detect_mult: %d rx_interval: %d tx_interval: %d", detectMult, rxInterval, txInterval)
+		////logger.Debugf("BFD Detection Time calculation not possible values detect_mult: %d rx_interval: %d tx_interval: %d", detectMult, rxInterval, txInterval)
 		return 0
 	}
 	if rxInterval > txInterval {
@@ -395,7 +400,7 @@ func (s *Session) calcDetectTime(detectMult, rxInterval, txInterval uint32) (ret
 		ret = detectMult * txInterval
 	}
 
-	//slogger.Debugf("BFD Detection Time calculated using detect_mult: %d rx_interval: %d tx_interval: %d" , detectMult, rxInterval, txInterval)
+	//////logger.Debugf("BFD Detection Time calculated using detect_mult: %d rx_interval: %d tx_interval: %d" , detectMult, rxInterval, txInterval)
 	return
 }
 
@@ -486,12 +491,12 @@ func (s *Session) DetectFailure() {
 					s.LocalDiag = layers.BFDDiagnosticTimeExpired
 					s.setDesiredMinTxInterval(DesiredMinTXInterval)
 
-					slogger.Errorf("Detected BFD remote %s going DOWN ", s.Remote)
+					//////logger.Errorf("Detected BFD remote %s going DOWN ", s.Remote)
 
-					slogger.Infof("Time since last packet: %d ms; Detect Time: %d ms ", (time.Now().UnixNano()/1e6 - s.LastRxPacketTime), int64(s.asyncDetectTime)/1000)
+					//////logger.Infof("Time since last packet: %d ms; Detect Time: %d ms ", (time.Now().UnixNano()/1e6 - s.LastRxPacketTime), int64(s.asyncDetectTime)/1000)
 
 					//fmt.Printf("Detected BFD remote %s going DOWN \n", s.Remote)
-					fmt.Printf("Time since last packet: %d ms; Detect Time: %d ms \n", (time.Now().UnixNano()/1e6 - s.LastRxPacketTime), int64(s.asyncDetectTime) / 1000)
+					fmt.Printf("Time since last packet: %d ms; Detect Time: %d ms \n", (time.Now().UnixNano()/1e6 - s.LastRxPacketTime), int64(s.asyncDetectTime)/1000)
 
 				}
 			}

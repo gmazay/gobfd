@@ -1,18 +1,12 @@
 package gobfd
 
-import (
-	"go.uber.org/zap"
-)
-
-var (
-	logger  *zap.Logger
-	slogger *zap.SugaredLogger
-)
-
-func init() {
-	logger = zap.L()
-	slogger = zap.S()
-
+type Logger interface {
+	// Printf must have the same semantics as log.Printf.
+	Printf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
+	//Info(format string)
+	//Infof(format string, args ...interface{})
+	//Debugf(format string, args ...interface{})
+	//Error(format string)
+	//Errorf(format string, args ...interface{})
 }
-
-
